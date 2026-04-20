@@ -204,7 +204,7 @@ function SpendingCategories({ metrics }) {
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { metrics, insights, isLoadingInsights, navigateTo, transactions, refreshInsights } = useApp();
+  const { metrics, insights, isLoadingInsights, navigateTo, transactions, refreshInsights, dataSource, txCount } = useApp();
   const [showModal, setShowModal] = useState(null);
 
   const scoreLabel = getScoreLabel(metrics?.overall || 0);
@@ -240,6 +240,29 @@ export default function Dashboard() {
   return (
     <div className="pb-20 md:pb-8">
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
+
+        {/* ── Data source banner ──────────────────────────────────────────── */}
+        {dataSource === 'demo' ? (
+          <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700 stagger-1">
+            <span className="text-base">⚠️</span>
+            <span>
+              <span className="font-semibold">Showing demo data.</span> Upload your bank statement or paste UPI SMSes in onboarding to see your real numbers.
+            </span>
+            <button
+              onClick={() => navigateTo('onboarding')}
+              className="ml-auto flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 transition-colors"
+            >
+              Upload now →
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 stagger-1">
+            <span className="text-base">✅</span>
+            <span>
+              <span className="font-semibold">Your real data is loaded</span> — {txCount} transactions from your {dataSource === 'pdf' ? 'bank statement PDF' : 'UPI SMSes'}.
+            </span>
+          </div>
+        )}
 
         {/* ── Zone 1: Health Score ─────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-sm border-l-4 border-indigo-500 stagger-1">

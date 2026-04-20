@@ -18,6 +18,8 @@ export default function App() {
   const [insights, setInsights]           = useState([]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [goals, setGoals]                 = useState([]);
+  const [dataSource, setDataSource]       = useState('demo'); // 'demo' | 'pdf' | 'sms'
+  const [txCount, setTxCount]             = useState(0);
 
   // Recompute metrics whenever transactions or profile change
   useEffect(() => {
@@ -29,7 +31,10 @@ export default function App() {
 
   // processTransactions: called from onboarding step 2
   const processTransactions = useCallback(async (txns, source) => {
-    const finalTxns = txns && txns.length > 0 ? txns : DEMO_TRANSACTIONS;
+    const isReal = txns && txns.length > 0;
+    const finalTxns = isReal ? txns : DEMO_TRANSACTIONS;
+    setDataSource(isReal ? source : 'demo');
+    setTxCount(finalTxns.length);
     setTransactions(finalTxns);
 
     const m = computeMetrics(finalTxns, profile);
@@ -84,6 +89,8 @@ export default function App() {
     navigateTo,
     processTransactions,
     refreshInsights,
+    dataSource,
+    txCount,
   };
 
   const showNav = currentScreen !== 'onboarding';
