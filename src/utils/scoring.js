@@ -6,7 +6,11 @@ function clamp(val, min = 0, max = 100) {
 
 export function computeMetrics(transactions, profile) {
   const income = getIncomeAmount(profile.incomeRange || '₹50K–1L');
-  const months = 3;
+
+  // Detect actual statement duration from transaction dates
+  const dates = transactions.map(t => new Date(t.date).getTime()).filter(Boolean);
+  const spanMs = dates.length >= 2 ? Math.max(...dates) - Math.min(...dates) : 0;
+  const months = Math.max(1, Math.round(spanMs / (30.44 * 24 * 60 * 60 * 1000))) || 1;
 
   // Split credits / debits
   const credits = transactions.filter(t => t.type === 'credit');

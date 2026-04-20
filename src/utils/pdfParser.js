@@ -1,7 +1,7 @@
 import { categorizeTransaction } from './categorize.js';
 
-// Extract text from PDF preserving row structure via Y-position grouping
-async function extractRows(file) {
+// ── Step 1: Extract rows preserving X-position per item ───────────────────────
+async function extractRowItems(file) {
   if (!window.pdfjsLib) throw new Error('pdf.js not loaded');
 
   const arrayBuffer = await file.arrayBuffer();
@@ -9,179 +9,200 @@ async function extractRows(file) {
 
   const allRows = [];
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
     const content = await page.getTextContent();
 
-    // Group items by rounded Y coordinate → same row
+    // Group text items by Y coordinate (rounded to handle sub-pixel jitter)
     const rowMap = {};
     for (const item of content.items) {
-      if (!item.str?.trim()) continue;
+      const text = item.str?.trim();
+      if (!text) continue;
       const y = Math.round(item.transform[5]);
       if (!rowMap[y]) rowMap[y] = [];
-      rowMap[y].push({ x: item.transform[4], text: item.str.trim() });
+      rowMap[y].push({ x: item.transform[4], text });
     }
 
-    // Sort rows top→bottom (higher Y = higher on page in PDF coords)
-    const sortedRows = Object.entries(rowMap)
+    // Sort rows top-to-bottom; items within each row left-to-right
+    Object.entries(rowMap)
       .sort((a, b) => Number(b[0]) - Number(a[0]))
-      .map(([, items]) => {
+      .forEach(([, items]) => {
         items.sort((a, b) => a.x - b.x);
-        return items.map(i => i.text).join('  ');
+        allRows.push(items);
       });
-
-    allRows.push(...sortedRows);
   }
 
   return allRows;
 }
 
-// ── Date parsing ─────────────────────────────────────────────────────────────
-function parseDate(str) {
-  if (!str) return null;
-  const s = str.trim();
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const AMOUNT_RE = /^\d{1,3}(?:,\d{2,3})*(?:\.\d{0,2})?$|^\d{4,}(?:\.\d{0,2})?$/;
+
+function isAmountStr(s) {
+  return AMOUNT_RE.test(s.trim());
+}
+
+function parseAmount(s) {
+  return parseFloat((s || '').replace(/,/g, '')) || 0;
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  const t = s.trim();
 
   // DD/MM/YYYY or DD-MM-YYYY
-  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  let m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
 
   // DD/MM/YY or DD-MM-YY
-  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+  m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
   if (m) {
     const yr = +m[3] + (+m[3] > 50 ? 1900 : 2000);
     return new Date(yr, +m[2] - 1, +m[1]);
   }
 
-  // DD MMM YYYY  e.g. "05 Mar 2025"
-  m = s.match(/^(\d{1,2})\s+(\w{3})\s+(\d{4})$/i);
-  if (m) return new Date(`${m[1]} ${m[2]} ${m[3]}`);
+  // DDMmmYYYY or DDMmmYY (e.g. 01Jan2025 or 01Jan25)
+  m = t.match(/^(\d{1,2})([A-Za-z]{3})(\d{2,4})$/);
+  if (m) { const d = new Date(`${m[1]} ${m[2]} ${m[3]}`); if (!isNaN(d)) return d; }
 
-  // DDMmmYY  e.g. "05Mar25"
-  m = s.match(/^(\d{2})([A-Za-z]{3})(\d{2,4})$/);
-  if (m) return new Date(`${m[1]} ${m[2]} ${m[3]}`);
+  // DD MMM YYYY (e.g. 01 Jan 2025)
+  m = t.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+  if (m) { const d = new Date(`${m[1]} ${m[2]} ${m[3]}`); if (!isNaN(d)) return d; }
 
   // YYYY-MM-DD
-  m = s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
 
   return null;
 }
 
-function parseAmount(str) {
-  if (!str) return 0;
-  return parseFloat(str.replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
-}
+const SKIP_PATTERNS = /\b(date|narration|description|particulars|chq|ref no|value dt|withdrawal|deposit|balance|opening|closing|total|brought forward|carried forward|page|statement period|account no|ifsc|branch)\b/i;
 
-// Find a date token anywhere in a string
-function extractDate(row) {
-  const tokens = row.split(/\s{2,}|\t/).map(t => t.trim()).filter(Boolean);
-  for (const tok of tokens) {
-    // Try full token
-    const d = parseDate(tok);
-    if (d && !isNaN(d.getTime())) return { date: d, token: tok };
-    // Try sub-matches
-    const m = tok.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/) ||
-              tok.match(/\d{2}[A-Za-z]{3}\d{2,4}/) ||
-              tok.match(/\d{1,2}\s+\w{3}\s+\d{4}/);
-    if (m) {
-      const d2 = parseDate(m[0]);
-      if (d2 && !isNaN(d2.getTime())) return { date: d2, token: m[0] };
-    }
-  }
-  return null;
-}
-
-// Extract all numeric amounts from a string
-function extractAmounts(str) {
-  const matches = str.match(/\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?/g) || [];
-  return matches
-    .map(m => parseFloat(m.replace(/,/g, '')))
-    .filter(n => n >= 1 && n < 10_000_000);
-}
-
-// ── Main row-level parser ─────────────────────────────────────────────────────
-function parseRows(rows) {
+// ── Step 2: Parse rows using balance-change tracking ──────────────────────────
+function parseRows(allRows) {
   const transactions = [];
-  let id = 0;
+  let txId = 0;
+  let prevBalance = null;
 
-  // Detect if this looks like a structured bank statement
-  // by checking for header keywords
-  const fullText = rows.join(' ').toLowerCase();
-  const hasDebitCredit = /\b(debit|withdrawal|credit|deposit)\b/.test(fullText);
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear() - 3, 0, 1);
 
-  for (const row of rows) {
-    if (row.length < 8) continue;
+  for (const items of allRows) {
+    if (items.length < 2) continue;
 
-    // Must contain a date
-    const dateResult = extractDate(row);
-    if (!dateResult) continue;
-    const { date } = dateResult;
-
-    // Sanity-check date range (last 3 years)
-    const now = new Date();
-    if (date > now || date < new Date(now.getFullYear() - 3, 0, 1)) continue;
-
-    const lc = row.toLowerCase();
-    const amounts = extractAmounts(row);
-    if (amounts.length === 0) continue;
+    const rowText = items.map(i => i.text).join(' ');
 
     // Skip header/summary rows
-    if (/\b(opening|closing|balance b\/f|total|brought forward)\b/.test(lc)) continue;
-
-    // Determine description: everything between date token and first large number
-    const afterDate = row.slice(row.indexOf(dateResult.token) + dateResult.token.length)
-      .replace(/\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 80);
-    const description = afterDate || 'Transaction';
-
-    // Determine type using keywords or column heuristics
-    const isCreditKeyword = /\b(cr|credit|credited|deposit|deposited|salary|neft cr|imps cr|received|refund|cashback)\b/.test(lc);
-    const isDebitKeyword  = /\b(dr|debit|debited|withdrawal|withdrawn|payment|purchase|transfer out)\b/.test(lc);
-
-    let type;
-    if (isCreditKeyword && !isDebitKeyword) {
-      type = 'credit';
-    } else if (isDebitKeyword && !isCreditKeyword) {
-      type = 'debit';
-    } else {
-      // Heuristic: for statements with 3+ amounts (withdrawal, deposit, balance),
-      // if second amount > 0 → credit; if first > 0 → debit
-      // For statements with 2 amounts: first = txn amount, second = balance
-      // We use the smallest non-zero amount as the transaction amount
-      // and try to guess type from description
-      const descLc = description.toLowerCase();
-      const likelyCreditDesc = /salary|refund|cashback|reward|interest|dividend|reversal/.test(descLc);
-      type = likelyCreditDesc ? 'credit' : 'debit';
+    if (SKIP_PATTERNS.test(rowText)) {
+      continue;
     }
 
-    // Pick the transaction amount (not the running balance)
-    // Running balance is usually the largest number; transaction is smaller
-    let amount;
-    if (amounts.length === 1) {
-      amount = amounts[0];
-    } else if (amounts.length === 2) {
-      // Second is likely balance; first is the transaction
-      amount = amounts[0];
-    } else {
-      // 3 columns: withdrawal | deposit | balance
-      // For credit: deposit column (index 1) is non-zero
-      // For debit: withdrawal column (index 0) is non-zero
-      if (type === 'credit') {
-        amount = amounts[1] || amounts[0];
-      } else {
-        amount = amounts[0];
+    // ── Find a date in the first 4 tokens ──────────────────────────────────
+    let date = null;
+    let dateIdx = -1;
+
+    for (let i = 0; i < Math.min(items.length, 5); i++) {
+      // Try single token
+      let d = parseDate(items[i].text);
+      if (d && d > cutoff && d <= now) { date = d; dateIdx = i; break; }
+
+      // Try two consecutive tokens (e.g. "01" "Jan 2025" or "01 Jan" "2025")
+      if (i < items.length - 1) {
+        d = parseDate(`${items[i].text} ${items[i + 1].text}`);
+        if (d && d > cutoff && d <= now) { date = d; dateIdx = i; break; }
+      }
+
+      // Try three consecutive tokens (e.g. "01" "Jan" "2025")
+      if (i < items.length - 2) {
+        d = parseDate(`${items[i].text} ${items[i + 1].text} ${items[i + 2].text}`);
+        if (d && d > cutoff && d <= now) { date = d; dateIdx = i; break; }
       }
     }
 
-    if (!amount || amount <= 0) continue;
+    if (!date) continue;
+
+    // ── Collect monetary amount items sorted by X position (left→right) ────
+    const amtItems = items
+      .filter(i => isAmountStr(i.text))
+      .map(i => ({ x: i.x, value: parseAmount(i.text) }))
+      .filter(i => i.value >= 0.01)
+      .sort((a, b) => a.x - b.x);
+
+    if (amtItems.length === 0) continue;
+
+    // ── Determine type + transaction amount ────────────────────────────────
+    let type, txAmount;
+
+    // The rightmost amount is almost always the running balance
+    const balanceCandidate = amtItems[amtItems.length - 1].value;
+
+    if (prevBalance !== null && amtItems.length >= 2) {
+      // PRIMARY: balance-change tracking
+      const diff = balanceCandidate - prevBalance;
+
+      // Skip rows where balance didn't meaningfully change (likely a header or
+      // sub-total row that slipped through)
+      if (Math.abs(diff) < 0.5) continue;
+
+      type = diff > 0 ? 'credit' : 'debit';
+      const balanceDiff = Math.abs(diff);
+
+      // Find the amount item closest to the balance diff (avoids using the balance itself)
+      const nonBalance = amtItems.slice(0, -1);
+      const best = nonBalance.reduce((b, a) =>
+        Math.abs(a.value - balanceDiff) < Math.abs(b.value - balanceDiff) ? a : b,
+        nonBalance[0]
+      );
+
+      // Accept the matched item if within 1% tolerance, else use the diff directly
+      txAmount = (Math.abs(best.value - balanceDiff) / balanceDiff < 0.01)
+        ? best.value
+        : balanceDiff;
+
+    } else {
+      // FALLBACK (no balance context): use Dr/Cr tokens + keywords
+      const lc = rowText.toLowerCase();
+      const hasCr = /\b(cr|credit|credited|salary|neft cr|imps cr|by neft|by transfer|by clearing|by imps|deposit|received|cashback|refund|reversal|interest credited)\b/.test(lc);
+      const hasDr = /\b(dr|debit|debited|withdrawal|withdrawn|payment|purchase|transfer to|to neft|to imps|to upi)\b/.test(lc);
+
+      if (hasCr && !hasDr) type = 'credit';
+      else if (hasDr && !hasCr) type = 'debit';
+      else type = 'debit'; // safe default
+
+      // Amount: second from right (rightmost assumed to be balance)
+      txAmount = amtItems.length >= 2
+        ? amtItems[amtItems.length - 2].value
+        : amtItems[0].value;
+    }
+
+    prevBalance = balanceCandidate;
+
+    if (!txAmount || txAmount <= 0 || txAmount > 10_000_000) continue;
+
+    // ── Build description from non-date, non-amount tokens ─────────────────
+    const amtXSet = new Set(amtItems.map(a => a.x));
+    const descTokens = items
+      .filter((item, idx) => {
+        if (idx === dateIdx) return false;
+        if (amtXSet.has(item.x) && isAmountStr(item.text)) return false;
+        if (item.text.length <= 1) return false;
+        // Filter pure numbers that aren't amounts (cheque/ref numbers)
+        if (/^\d+$/.test(item.text) && item.text.length >= 5) return false;
+        return true;
+      })
+      .map(i => i.text)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+
+    const description = descTokens || 'Transaction';
 
     transactions.push({
-      id: `pdf-${++id}`,
+      id: `pdf-${++txId}`,
       date,
-      description: description.trim(),
-      amount,
+      description,
+      amount: txAmount,
       type,
       category: categorizeTransaction(description, type),
     });
@@ -190,11 +211,11 @@ function parseRows(rows) {
   return transactions;
 }
 
-// ── Dedup consecutive identical transactions ──────────────────────────────────
+// ── Dedup identical consecutive transactions ──────────────────────────────────
 function dedup(txns) {
   const seen = new Set();
   return txns.filter(t => {
-    const key = `${t.date.toDateString()}-${t.amount}-${t.type}-${t.description.slice(0, 20)}`;
+    const key = `${t.date.toDateString()}-${t.amount.toFixed(2)}-${t.type}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -205,9 +226,9 @@ function dedup(txns) {
 export async function parsePDF(file, onProgress) {
   onProgress?.(10);
 
-  let rows;
+  let rowItems;
   try {
-    rows = await extractRows(file);
+    rowItems = await extractRowItems(file);
   } catch (err) {
     console.warn('[PDF Parser] Extraction failed:', err.message);
     return [];
@@ -215,19 +236,13 @@ export async function parsePDF(file, onProgress) {
 
   onProgress?.(55);
 
-  let transactions = parseRows(rows);
-  onProgress?.(85);
+  let transactions = parseRows(rowItems);
+
+  onProgress?.(88);
 
   transactions = dedup(transactions);
 
-  // Remove outliers (amounts > 99th percentile are likely balance figures that slipped through)
-  if (transactions.length > 5) {
-    const sorted = [...transactions].map(t => t.amount).sort((a, b) => a - b);
-    const p99 = sorted[Math.floor(sorted.length * 0.99)];
-    transactions = transactions.filter(t => t.amount <= p99 * 2);
-  }
-
   onProgress?.(100);
-  console.log(`[PDF Parser] Extracted ${transactions.length} transactions from ${rows.length} rows`);
+  console.log(`[PDF Parser] Extracted ${transactions.length} transactions from ${rowItems.length} rows`);
   return transactions;
 }
