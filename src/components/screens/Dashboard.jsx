@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   PiggyBank, Shield, TrendingUp, CreditCard,
   ArrowRight, BarChart2, RefreshCw, Info, Share2, Loader2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.jsx';
 import { formatINR, formatPercent } from '../../utils/formatters.js';
-import { getScoreLabel, getSubScoreStatus } from '../../utils/scoring.js';
+import { getScoreLabel, getSubScoreStatus, computeMetrics } from '../../utils/scoring.js';
 import { getCategoryMeta } from '../../utils/categorize.js';
 import HealthScoreRing from '../shared/HealthScoreRing.jsx';
 import InsightCard from '../shared/InsightCard.jsx';
 import { SkeletonInsightCard } from '../shared/SkeletonCard.jsx';
+import PeriodFilter from '../shared/PeriodFilter.jsx';
 
 // ── Sub-score tile ────────────────────────────────────────────────────────────
 function SubScoreTile({ icon: Icon, label, score, value, target, message, colorScheme, staggerClass }) {
@@ -204,34 +205,42 @@ function SpendingCategories({ metrics }) {
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { metrics, insights, isLoadingInsights, navigateTo, transactions, refreshInsights, dataSource, txCount } = useApp();
+  const { metrics, insights, isLoadingInsights, navigateTo, transactions, filteredTransactions, refreshInsights, dataSource, txCount, profile } = useApp();
   const [showModal, setShowModal] = useState(null);
 
-  const scoreLabel = getScoreLabel(metrics?.overall || 0);
+  // Recompute metrics for the selected period
+  const filteredMetrics = useMemo(() => {
+    if (!filteredTransactions?.length) return metrics;
+    if (filteredTransactions === transactions) return metrics;
+    return computeMetrics(filteredTransactions, profile || {});
+  }, [filteredTransactions, transactions, metrics, profile]);
+
+  const m = filteredMetrics;
+  const scoreLabel = getScoreLabel(m?.overall || 0);
 
   const savingsMsg = () => {
-    const r = metrics?.savingsRate || 0;
+    const r = m?.savingsRate || 0;
     if (r >= 20) return `Great — ${formatPercent(r)} is at or above the 20% target.`;
-    const gap = metrics?.monthlyIncome * 0.2 - metrics?.monthlySavings;
+    const gap = m?.monthlyIncome * 0.2 - m?.monthlySavings;
     return `${formatPercent(r)} rate — ${formatINR(gap)} more/month hits the 20% target.`;
   };
 
   const emergencyMsg = () => {
-    const c = metrics?.emergencyCoverage || 0;
+    const c = m?.emergencyCoverage || 0;
     if (c >= 3) return `${c.toFixed(1)} months covered — you're in the green.`;
-    const needed = (3 - c) * (metrics?.monthlyExpenses || 0);
+    const needed = (3 - c) * (m?.monthlyExpenses || 0);
     return `${c.toFixed(1)} months covered — ${formatINR(needed)} more closes the gap.`;
   };
 
   const investMsg = () => {
-    const r = metrics?.investmentRate || 0;
+    const r = m?.investmentRate || 0;
     if (r >= 10) return `${formatPercent(r)} invested — above the 10% target. `;
     if (r === 0) return `No investments detected. Starting a ₹2,000 SIP changes everything.`;
-    return `${formatPercent(r)} — increase SIP by ${formatINR(metrics?.monthlyIncome * 0.10 - metrics?.monthlyInvestment)} to hit 10%.`;
+    return `${formatPercent(r)} — increase SIP by ${formatINR(m?.monthlyIncome * 0.10 - m?.monthlyInvestment)} to hit 10%.`;
   };
 
   const debtMsg = () => {
-    const r = metrics?.debtRate || 0;
+    const r = m?.debtRate || 0;
     if (r === 0) return 'No EMI/loan payments detected. Excellent flexibility.';
     if (r < 40) return `${formatPercent(r)} debt load — well within the safe 40% ceiling.`;
     return `${formatPercent(r)} of income goes to EMIs — consider prepayment.`;
@@ -264,6 +273,9 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* ── Period filter ────────────────────────────────────────────────── */}
+        <PeriodFilter />
+
         {/* ── Zone 1: Health Score ─────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-sm border-l-4 border-indigo-500 stagger-1">
           <div className="p-6 md:p-8">
@@ -275,7 +287,7 @@ export default function Dashboard() {
                 </p>
                 <div className="count-up">
                   <span className="text-8xl font-black text-gray-900 leading-none">
-                    {metrics?.overall ?? '—'}
+                    {m?.overall ?? '—'}
                   </span>
                 </div>
                 <div className={`inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full text-sm font-semibold ${scoreLabel.bg} ${scoreLabel.color}`}>
@@ -286,7 +298,7 @@ export default function Dashboard() {
 
               {/* Right: ring */}
               <div className="flex justify-center">
-                <HealthScoreRing score={metrics?.overall ?? 0} size={200} />
+                <HealthScoreRing score={m?.overall ?? 0} size={200} />
               </div>
             </div>
           </div>
@@ -297,8 +309,8 @@ export default function Dashboard() {
           <SubScoreTile
             icon={PiggyBank}
             label="Savings Rate"
-            score={metrics?.savingsScore ?? 0}
-            value={formatPercent(metrics?.savingsRate ?? 0)}
+            score={m?.savingsScore ?? 0}
+            value={formatPercent(m?.savingsRate ?? 0)}
             target="20%"
             message={savingsMsg()}
             colorScheme="default"
@@ -307,8 +319,8 @@ export default function Dashboard() {
           <SubScoreTile
             icon={Shield}
             label="Emergency Fund"
-            score={metrics?.emergencyScore ?? 0}
-            value={`${(metrics?.emergencyCoverage ?? 0).toFixed(1)} mo`}
+            score={m?.emergencyScore ?? 0}
+            value={`${(m?.emergencyCoverage ?? 0).toFixed(1)} mo`}
             target="3 months"
             message={emergencyMsg()}
             colorScheme="default"
@@ -317,8 +329,8 @@ export default function Dashboard() {
           <SubScoreTile
             icon={TrendingUp}
             label="Investment Exposure"
-            score={metrics?.investmentScore ?? 0}
-            value={formatPercent(metrics?.investmentRate ?? 0)}
+            score={m?.investmentScore ?? 0}
+            value={formatPercent(m?.investmentRate ?? 0)}
             target="10%"
             message={investMsg()}
             colorScheme="default"
@@ -327,8 +339,8 @@ export default function Dashboard() {
           <SubScoreTile
             icon={CreditCard}
             label="Debt Load"
-            score={metrics?.debtScore ?? 0}
-            value={formatPercent(metrics?.debtRate ?? 0)}
+            score={m?.debtScore ?? 0}
+            value={formatPercent(m?.debtRate ?? 0)}
             target="< 40%"
             message={debtMsg()}
             colorScheme="debt"
@@ -393,13 +405,13 @@ export default function Dashboard() {
           </div>
 
           {/* Spending breakdown */}
-          <SpendingCategories metrics={metrics} />
+          <SpendingCategories metrics={m} />
         </div>
       </div>
 
       {/* Month comparison modal */}
       {showModal === 'compare' && (
-        <MonthComparisonModal transactions={transactions} onClose={() => setShowModal(null)} />
+        <MonthComparisonModal transactions={filteredTransactions || transactions} onClose={() => setShowModal(null)} />
       )}
 
       {/* Share modal */}
@@ -408,7 +420,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
             <div className="w-24 h-24 rounded-2xl bg-indigo-500 flex items-center justify-center mx-auto mb-4">
               <div className="text-center">
-                <div className="text-3xl font-black text-white">{metrics?.overall}</div>
+                <div className="text-3xl font-black text-white">{m?.overall}</div>
                 <div className="text-xs text-indigo-200">/ 100</div>
               </div>
             </div>

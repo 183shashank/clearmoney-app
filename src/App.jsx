@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppContext } from './context/AppContext.jsx';
 import { DEMO_TRANSACTIONS, DEMO_PROFILE, DEMO_INSIGHTS } from './utils/demoData.js';
 import { computeMetrics } from './utils/scoring.js';
@@ -9,6 +9,7 @@ import Dashboard from './components/screens/Dashboard.jsx';
 import Insights from './components/screens/Insights.jsx';
 import GoalSimulator from './components/screens/GoalSimulator.jsx';
 import EducationHub from './components/screens/EducationHub.jsx';
+import Transactions from './components/screens/Transactions.jsx';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('onboarding');
@@ -20,6 +21,43 @@ export default function App() {
   const [goals, setGoals]                 = useState([]);
   const [dataSource, setDataSource]       = useState('demo'); // 'demo' | 'pdf' | 'sms'
   const [txCount, setTxCount]             = useState(0);
+  const [selectedPeriod, setSelectedPeriod] = useState('all');
+
+  // Filter transactions by selected period
+  const filteredTransactions = useMemo(() => {
+    if (!transactions.length) return transactions;
+    const now = new Date();
+
+    if (selectedPeriod === 'all') return transactions;
+
+    if (selectedPeriod === 'this_month') {
+      return transactions.filter(t => {
+        const d = new Date(t.date);
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      });
+    }
+    if (selectedPeriod === 'last_month') {
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return transactions.filter(t => {
+        const d = new Date(t.date);
+        return d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth();
+      });
+    }
+    if (selectedPeriod === '3m') {
+      const cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      return transactions.filter(t => new Date(t.date) >= cutoff);
+    }
+    if (selectedPeriod === '6m') {
+      const cutoff = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+      return transactions.filter(t => new Date(t.date) >= cutoff);
+    }
+    // Specific month: 'YYYY-MM'
+    const [yr, mo] = selectedPeriod.split('-').map(Number);
+    return transactions.filter(t => {
+      const d = new Date(t.date);
+      return d.getFullYear() === yr && d.getMonth() + 1 === mo;
+    });
+  }, [transactions, selectedPeriod]);
 
   // Recompute metrics whenever transactions or profile change
   useEffect(() => {
@@ -91,6 +129,9 @@ export default function App() {
     refreshInsights,
     dataSource,
     txCount,
+    selectedPeriod,
+    setSelectedPeriod,
+    filteredTransactions,
   };
 
   const showNav = currentScreen !== 'onboarding';
@@ -101,11 +142,12 @@ export default function App() {
         {showNav && <Navigation />}
 
         <main className={showNav ? 'max-w-[1440px] mx-auto' : ''}>
-          {currentScreen === 'onboarding' && <Onboarding />}
-          {currentScreen === 'dashboard'  && <Dashboard />}
-          {currentScreen === 'insights'   && <Insights />}
-          {currentScreen === 'goals'      && <GoalSimulator />}
-          {currentScreen === 'education'  && <EducationHub />}
+          {currentScreen === 'onboarding'    && <Onboarding />}
+          {currentScreen === 'dashboard'     && <Dashboard />}
+          {currentScreen === 'transactions'  && <Transactions />}
+          {currentScreen === 'insights'      && <Insights />}
+          {currentScreen === 'goals'         && <GoalSimulator />}
+          {currentScreen === 'education'     && <EducationHub />}
         </main>
       </div>
     </AppContext.Provider>

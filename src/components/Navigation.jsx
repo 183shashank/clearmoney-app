@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { LayoutDashboard, Lightbulb, Target, BookOpen, Menu, X, Gem } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Target, BookOpen, Menu, X, Gem, Receipt } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 
 const NAV_ITEMS = [
-  { id: 'dashboard',  label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'insights',   label: 'Insights',  icon: Lightbulb },
-  { id: 'goals',      label: 'Goals',     icon: Target },
-  { id: 'education',  label: 'Learn',     icon: BookOpen },
+  { id: 'dashboard',    label: 'Dashboard',    icon: LayoutDashboard },
+  { id: 'transactions', label: 'Transactions', icon: Receipt },
+  { id: 'insights',     label: 'Insights',     icon: Lightbulb },
+  { id: 'goals',        label: 'Goals',        icon: Target },
+  { id: 'education',    label: 'Learn',        icon: BookOpen },
 ];
 
 export default function Navigation() {
