@@ -168,4 +168,3 @@ export const DEBIT_CATEGORIES = [
   'Others',
 ];
 
-export { CATEGORY_RULES };
