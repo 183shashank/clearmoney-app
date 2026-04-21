@@ -19,14 +19,18 @@ Built as a PM portfolio project, designed and engineered to production quality.
 | Screen | What it does |
 |---|---|
 | **Onboarding** | 3-step wizard — financial profile → upload bank statement PDF or paste UPI SMSes → animated processing |
-| **Dashboard** | Financial Health Score (0–100), 4 sub-scores, AI insight cards, spending breakdown, quick actions |
+| **Dashboard** | Financial Health Score (0–100), 4 sub-scores, AI insight cards, spending breakdown, quick actions. Period filter updates all metrics live. |
+| **Transactions** | Full transaction list with category donut chart, stacked monthly bar chart, per-category filter cards, search, and pagination. Tap any category tag to re-assign it. |
 | **Insights** | 8 personalised insight cards with category filters and expandable "Why does this matter?" explanations |
 | **Goal Simulator** | Live compound interest calculator — see exactly what you need to save/month to hit any goal |
 | **Education Hub** | 6 personalised long-form articles built around your actual numbers |
 
 ### Key behaviours
-- **PDF parsing** — extracts transactions from HDFC, ICICI, SBI, Axis, Kotak statements using position-based row detection via pdf.js
+- **PDF parsing** — extracts transactions from HDFC, ICICI, SBI, Axis, Kotak statements using position-based row detection and balance-change tracking via pdf.js
 - **SMS parsing** — parses all major Indian UPI SMS formats
+- **Granular categorisation** — 15+ categories: Cab, Commute, Fuel & Petrol, Flight & Travel, Food Delivery, Groceries, Dining Out, Rent, EMI & Loans, Investment, Utilities, Entertainment, Shopping, Health, Others
+- **Manual re-categorisation** — tap any category tag to reassign; smart normalisation (strips ref numbers) means one fix applies to all matching transactions; persists in localStorage across re-uploads
+- **Period filter** — filter any screen by All Time, This Month, Last Month, 3M, 6M, or any specific calendar month
 - **Real data always** — insights and scores always reflect your uploaded data, never hardcoded placeholders
 - **AI insights** — optionally provide a Claude API key for LLM-generated insights; falls back to dynamically computed local insights if no key is provided
 - **Zero data storage** — everything runs in the browser; nothing is sent to any server except the optional Claude API call
@@ -116,18 +120,19 @@ clearmoney/
 ├── src/
 │   ├── components/
 │   │   ├── Navigation.jsx
-│   │   ├── screens/         # One file per screen
-│   │   └── shared/          # HealthScoreRing, InsightCard, SkeletonCard
+│   │   ├── screens/         # Dashboard, Transactions, Insights, GoalSimulator, EducationHub, Onboarding
+│   │   └── shared/          # HealthScoreRing, InsightCard, SkeletonCard, PeriodFilter
 │   ├── context/
 │   │   └── AppContext.jsx
 │   ├── utils/
-│   │   ├── categorize.js    # Transaction categorisation engine
-│   │   ├── claudeApi.js     # Claude API + local insight generator
-│   │   ├── demoData.js      # Realistic Mumbai demo transactions
-│   │   ├── formatters.js    # Indian number formatting (₹1,23,456)
-│   │   ├── pdfParser.js     # pdf.js-based bank statement parser
-│   │   ├── scoring.js       # Financial Health Score computation
-│   │   └── smsParser.js     # UPI SMS parser
+│   │   ├── categorize.js        # Transaction categorisation engine (15+ categories)
+│   │   ├── categoryOverrides.js # localStorage-backed manual category overrides
+│   │   ├── claudeApi.js         # Claude API + local insight generator
+│   │   ├── demoData.js          # Realistic Mumbai demo transactions
+│   │   ├── formatters.js        # Indian number formatting (₹1,23,456)
+│   │   ├── pdfParser.js         # pdf.js-based bank statement parser
+│   │   ├── scoring.js           # Financial Health Score computation
+│   │   └── smsParser.js         # UPI SMS parser
 │   └── App.jsx
 ├── index.html
 └── vercel.json
