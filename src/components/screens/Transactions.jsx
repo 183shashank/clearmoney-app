@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { Search, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.jsx';
-import { getCategoryMeta, CATEGORY_RULES, DEBIT_CATEGORIES } from '../../utils/categorize.js';
+import { getCategoryMeta, DEBIT_CATEGORIES } from '../../utils/categorize.js';
 import { getEffectiveCategory } from '../../utils/categoryOverrides.js';
 import { formatINR } from '../../utils/formatters.js';
 import PeriodFilter from '../shared/PeriodFilter.jsx';

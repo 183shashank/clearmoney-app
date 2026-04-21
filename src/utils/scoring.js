@@ -34,7 +34,7 @@ export function computeMetrics(transactions, profile) {
   const investmentScore = clamp((investmentRate / 10) * 100);
 
   // ── Debt Load ────────────────────────────────────────────────
-  const emiDebits = debits.filter(t => t.category === 'EMI / Loan');
+  const emiDebits = debits.filter(t => t.category === 'EMI & Loans');
   const monthlyEMI = emiDebits.reduce((s, t) => s + t.amount, 0) / months;
   const debtRate = monthlyIncome > 0 ? (monthlyEMI / monthlyIncome) * 100 : 0;
   const debtScore = clamp((1 - debtRate / 40) * 100);
