@@ -109,6 +109,8 @@ Weighted composite of four sub-scores:
 | Investment Exposure | 25% | ≥ 10% of income | `monthly SIP / income` |
 | Debt Load | 15% | < 40% of income | `monthly EMI / income` (inverted) |
 
+> **Note:** Investment Exposure only detects known platforms (Zerodha, Groww, Kuvera, etc.). Emergency Fund is estimated from the monthly savings figure entered during onboarding, not a live bank balance.
+
 ---
 
 ## Project Structure
