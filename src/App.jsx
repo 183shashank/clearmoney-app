@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppContext } from './context/AppContext.jsx';
 import { DEMO_TRANSACTIONS, DEMO_PROFILE, DEMO_INSIGHTS } from './utils/demoData.js';
+import { loadOverrides, saveOverride } from './utils/categoryOverrides.js';
 import { computeMetrics } from './utils/scoring.js';
 import { generateInsights } from './utils/claudeApi.js';
 import Navigation from './components/Navigation.jsx';
@@ -22,6 +23,12 @@ export default function App() {
   const [dataSource, setDataSource]       = useState('demo'); // 'demo' | 'pdf' | 'sms'
   const [txCount, setTxCount]             = useState(0);
   const [selectedPeriod, setSelectedPeriod] = useState('all');
+  const [categoryOverrides, setCategoryOverridesState] = useState(() => loadOverrides());
+
+  const setCategoryOverride = useCallback((description, category) => {
+    const updated = saveOverride(description, category);
+    setCategoryOverridesState({ ...updated });
+  }, []);
 
   // Filter transactions by selected period
   const filteredTransactions = useMemo(() => {
@@ -132,6 +139,8 @@ export default function App() {
     selectedPeriod,
     setSelectedPeriod,
     filteredTransactions,
+    categoryOverrides,
+    setCategoryOverride,
   };
 
   const showNav = currentScreen !== 'onboarding';

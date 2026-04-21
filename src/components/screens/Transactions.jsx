@@ -1,14 +1,18 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
   LineChart, Line,
 } from 'recharts';
-import { Search, ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.jsx';
-import { getCategoryMeta, CATEGORY_RULES } from '../../utils/categorize.js';
-import { formatINR, formatDate } from '../../utils/formatters.js';
+import { getCategoryMeta, CATEGORY_RULES, DEBIT_CATEGORIES } from '../../utils/categorize.js';
+import { getEffectiveCategory } from '../../utils/categoryOverrides.js';
+import { formatINR } from '../../utils/formatters.js';
 import PeriodFilter from '../shared/PeriodFilter.jsx';
+
+// All categories a user can pick from (debit + Income)
+const ALL_CATS = [...DEBIT_CATEGORIES, 'Income'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function groupByDate(transactions) {
@@ -18,8 +22,7 @@ function groupByDate(transactions) {
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
   });
-  return Object.entries(groups)
-    .sort((a, b) => new Date(b[0]) - new Date(a[0]));
+  return Object.entries(groups).sort((a, b) => new Date(b[0]) - new Date(a[0]));
 }
 
 function buildCategoryTotals(transactions) {
@@ -44,8 +47,59 @@ function buildMonthlyBreakdown(transactions) {
   return Object.values(monthMap).sort((a, b) => a.key.localeCompare(b.key));
 }
 
-// Top categories to show in stacked bar (rest → Others)
 const TOP_N = 6;
+
+// ── Category picker modal ────────────────────────────────────────────────────
+function CategoryPicker({ current, onSelect, onClose }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/30 backdrop-blur-sm">
+      <div
+        ref={ref}
+        className="bg-white w-full md:max-w-sm rounded-t-2xl md:rounded-2xl shadow-xl p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 text-base">Change category</h3>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+          {ALL_CATS.filter(c => c !== 'Income').map(cat => {
+            const meta = getCategoryMeta(cat);
+            const isSelected = cat === current;
+            return (
+              <button
+                key={cat}
+                onClick={() => { onSelect(cat); onClose(); }}
+                className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border text-center transition-all ${
+                  isSelected
+                    ? 'border-indigo-400 bg-indigo-50'
+                    : 'border-gray-100 bg-gray-50 hover:border-gray-300 hover:bg-white'
+                }`}
+              >
+                <span className="text-xl leading-none">{meta.emoji}</span>
+                <span className="text-[10px] font-medium text-gray-700 leading-tight">{cat}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-3 text-center">
+          Applies to all similar transactions
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // ── Donut chart ───────────────────────────────────────────────────────────────
 function CategoryDonut({ data }) {
@@ -110,9 +164,8 @@ function CategoryDonut({ data }) {
         </ResponsiveContainer>
       </div>
 
-      {/* Legend */}
       <div className="flex-1 space-y-1.5 min-w-0">
-        {data.slice(0, 7).map((item, i) => {
+        {data.slice(0, 7).map(item => {
           const meta = getCategoryMeta(item.name);
           const pct = total > 0 ? ((item.value / total) * 100).toFixed(0) : 0;
           return (
@@ -125,14 +178,14 @@ function CategoryDonut({ data }) {
           );
         })}
         {data.length > 7 && (
-          <div className="text-xs text-gray-400">+{data.length - 7} more categories</div>
+          <div className="text-xs text-gray-400">+{data.length - 7} more</div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Stacked bar / trend chart ─────────────────────────────────────────────────
+// ── Monthly trend chart ───────────────────────────────────────────────────────
 function MonthlyTrendChart({ transactions }) {
   const [chartType, setChartType] = useState('bar');
 
@@ -212,7 +265,8 @@ function MonthlyTrendChart({ transactions }) {
             <Tooltip content={<CustomTooltip />} />
             {allCats.map(cat => {
               const meta = getCategoryMeta(cat);
-              return <Bar key={cat} dataKey={cat} stackId="a" fill={meta.color} radius={cat === allCats[allCats.length - 1] ? [3, 3, 0, 0] : [0, 0, 0, 0]} />;
+              return <Bar key={cat} dataKey={cat} stackId="a" fill={meta.color}
+                radius={cat === allCats[allCats.length - 1] ? [3, 3, 0, 0] : [0, 0, 0, 0]} />;
             })}
           </BarChart>
         ) : (
@@ -234,7 +288,7 @@ function MonthlyTrendChart({ transactions }) {
   );
 }
 
-// ── Category summary cards ────────────────────────────────────────────────────
+// ── Category cards ─────────────────────────────────────────────────────────────
 function CategoryCards({ data, activeCategory, onSelect }) {
   const total = data.reduce((s, d) => s + d.value, 0);
 
@@ -283,66 +337,95 @@ function CategoryCards({ data, activeCategory, onSelect }) {
 }
 
 // ── Single transaction row ────────────────────────────────────────────────────
-function TxRow({ tx }) {
-  const meta = getCategoryMeta(tx.category);
+function TxRow({ tx, overrides, onOverride }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const effectiveCat = getEffectiveCategory(tx.description, tx.category, overrides);
+  const isOverridden = effectiveCat !== tx.category;
+  const meta = getCategoryMeta(effectiveCat);
+
   return (
-    <div className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0 group">
-      <div
-        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-base"
-        style={{ backgroundColor: meta.color + '15' }}
-      >
-        {meta.emoji}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{tx.description}</p>
-        <span
-          className="text-xs px-1.5 py-0.5 rounded-md font-medium"
-          style={{ backgroundColor: meta.color + '15', color: meta.color }}
+    <>
+      <div className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-base"
+          style={{ backgroundColor: meta.color + '15' }}
         >
-          {tx.category}
-        </span>
-      </div>
-      <div className="text-right flex-shrink-0">
-        <div className={`text-sm font-semibold ${tx.type === 'credit' ? 'text-emerald-600' : 'text-gray-900'}`}>
-          {tx.type === 'credit' ? '+' : '−'}{formatINR(tx.amount)}
+          {meta.emoji}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{tx.description}</p>
+          <button
+            onClick={() => setShowPicker(true)}
+            className="inline-flex items-center gap-1 mt-0.5 text-xs px-1.5 py-0.5 rounded-md font-medium transition-all hover:opacity-80 active:scale-95"
+            style={{ backgroundColor: meta.color + '18', color: meta.color }}
+            title="Tap to re-categorise"
+          >
+            {effectiveCat}
+            <Pencil size={9} className="opacity-60" />
+            {isOverridden && <span className="text-[9px] opacity-60">✓</span>}
+          </button>
+        </div>
+
+        <div className="text-right flex-shrink-0">
+          <div className={`text-sm font-semibold ${tx.type === 'credit' ? 'text-emerald-600' : 'text-gray-900'}`}>
+            {tx.type === 'credit' ? '+' : '−'}{formatINR(tx.amount)}
+          </div>
+          <div className="text-[10px] text-gray-400">
+            {new Date(tx.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+          </div>
         </div>
       </div>
-    </div>
+
+      {showPicker && (
+        <CategoryPicker
+          current={effectiveCat}
+          onSelect={cat => onOverride(tx.description, cat)}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
+    </>
   );
 }
 
-// ── Transaction list with search + filter ─────────────────────────────────────
-function TransactionList({ transactions, activeCategory }) {
+// ── Transaction list ──────────────────────────────────────────────────────────
+function TransactionList({ transactions, activeCategory, overrides, onOverride }) {
   const [search, setSearch] = useState('');
   const [showCount, setShowCount] = useState(50);
 
   const filtered = useMemo(() => {
     let txns = [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
-    if (activeCategory) txns = txns.filter(t => t.category === activeCategory);
+    if (activeCategory) txns = txns.filter(t =>
+      getEffectiveCategory(t.description, t.category, overrides) === activeCategory
+    );
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      txns = txns.filter(t => t.description.toLowerCase().includes(q) || t.category.toLowerCase().includes(q));
+      txns = txns.filter(t =>
+        t.description.toLowerCase().includes(q) ||
+        getEffectiveCategory(t.description, t.category, overrides).toLowerCase().includes(q)
+      );
     }
     return txns;
-  }, [transactions, activeCategory, search]);
+  }, [transactions, activeCategory, search, overrides]);
 
   const grouped = useMemo(() => groupByDate(filtered.slice(0, showCount)), [filtered, showCount]);
 
+  // reset pagination when filter changes
+  const prevLen = useMemo(() => filtered.length, [filtered]);
+
   return (
     <div>
-      {/* Search */}
       <div className="relative mb-4">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
           type="text"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setShowCount(50); }}
           placeholder="Search transactions..."
           className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
         />
       </div>
 
-      {/* Count */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-gray-400">
           {filtered.length} transaction{filtered.length !== 1 ? 's' : ''}
@@ -374,7 +457,14 @@ function TransactionList({ transactions, activeCategory }) {
                 </span>
               </div>
               <div className="bg-white rounded-2xl border border-gray-100 px-4">
-                {txns.map(tx => <TxRow key={tx.id} tx={tx} />)}
+                {txns.map(tx => (
+                  <TxRow
+                    key={tx.id}
+                    tx={tx}
+                    overrides={overrides}
+                    onOverride={onOverride}
+                  />
+                ))}
               </div>
             </div>
           ))}
@@ -386,15 +476,27 @@ function TransactionList({ transactions, activeCategory }) {
 
 // ── Main Transactions screen ──────────────────────────────────────────────────
 export default function Transactions() {
-  const { filteredTransactions } = useApp();
+  const { filteredTransactions, categoryOverrides, setCategoryOverride } = useApp();
   const [activeCategory, setActiveCategory] = useState(null);
   const [showCharts, setShowCharts] = useState(true);
 
-  const debitTxns = filteredTransactions.filter(t => t.type === 'debit');
-  const creditTxns = filteredTransactions.filter(t => t.type === 'credit');
-  const totalSpend = debitTxns.reduce((s, t) => s + t.amount, 0);
+  // Apply overrides to all transactions so charts reflect manual tags too
+  const effectiveTxns = useMemo(() =>
+    filteredTransactions.map(t => ({
+      ...t,
+      category: getEffectiveCategory(t.description, t.category, categoryOverrides),
+    })),
+    [filteredTransactions, categoryOverrides]
+  );
+
+  const debitTxns  = effectiveTxns.filter(t => t.type === 'debit');
+  const creditTxns = effectiveTxns.filter(t => t.type === 'credit');
+  const totalSpend  = debitTxns.reduce((s, t) => s + t.amount, 0);
   const totalIncome = creditTxns.reduce((s, t) => s + t.amount, 0);
-  const categoryData = buildCategoryTotals(filteredTransactions);
+  const categoryData = buildCategoryTotals(effectiveTxns);
+
+  // Count "Others" so user knows how many need tagging
+  const othersCount = debitTxns.filter(t => t.category === 'Others').length;
 
   return (
     <div className="pb-24 md:pb-8">
@@ -420,12 +522,29 @@ export default function Transactions() {
           <PeriodFilter />
         </div>
 
+        {/* "Others" nudge banner */}
+        {othersCount > 0 && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm stagger-2">
+            <span className="text-base">🏷️</span>
+            <div className="flex-1">
+              <span className="font-semibold text-amber-800">{othersCount} transaction{othersCount !== 1 ? 's' : ''} uncategorised.</span>
+              <span className="text-amber-700"> Tap any category tag to fix it — changes apply to all matching transactions.</span>
+            </div>
+            <button
+              onClick={() => setActiveCategory('Others')}
+              className="flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors"
+            >
+              Review →
+            </button>
+          </div>
+        )}
+
         {/* Summary stats */}
         <div className="grid grid-cols-3 gap-3 stagger-2">
           {[
-            { label: 'Total Spent',   value: formatINR(totalSpend),              color: 'text-gray-900' },
-            { label: 'Total Income',  value: formatINR(totalIncome),             color: 'text-emerald-600' },
-            { label: 'Transactions',  value: filteredTransactions.length,        color: 'text-indigo-600' },
+            { label: 'Total Spent',  value: formatINR(totalSpend),         color: 'text-gray-900' },
+            { label: 'Total Income', value: formatINR(totalIncome),        color: 'text-emerald-600' },
+            { label: 'Transactions', value: filteredTransactions.length,   color: 'text-indigo-600' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
               <div className={`text-lg font-bold ${color}`}>{value}</div>
@@ -437,15 +556,12 @@ export default function Transactions() {
         {/* Charts */}
         {showCharts && (
           <div className="grid md:grid-cols-2 gap-4 stagger-3">
-            {/* Donut */}
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className="text-sm font-semibold text-gray-800 mb-4">Spending breakdown</p>
               <CategoryDonut data={categoryData} />
             </div>
-
-            {/* Monthly trend */}
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
-              <MonthlyTrendChart transactions={filteredTransactions} />
+              <MonthlyTrendChart transactions={effectiveTxns} />
             </div>
           </div>
         )}
@@ -467,6 +583,8 @@ export default function Transactions() {
           <TransactionList
             transactions={filteredTransactions}
             activeCategory={activeCategory}
+            overrides={categoryOverrides}
+            onOverride={setCategoryOverride}
           />
         </div>
 
